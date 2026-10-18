@@ -13,10 +13,10 @@
 ## 執行指令
 
 ```bash
-# 單元與 API 測試（8 個檔案、88 項測試）
+# 單元與 API 測試（9 個檔案、128 項測試）
 npm run test:unit
 
-# 結帳、訂單、優惠碼、DB、庫存、回滾與綠界整合測試（2 個檔案、21 項測試）
+# 結帳、訂單、優惠碼、訂單列表、DB、庫存、回滾與綠界整合測試（3 個檔案、40 項測試）
 npm run test:integration
 
 # 已另行啟動 http://localhost:3001 後，執行真實付款 E2E
@@ -137,10 +137,11 @@ Integration Test 中有兩層防護：
 |------|------|
 | `tests/shipping.test.js` | Shipping 純函式、門檻（1,499 / 1,500 / 1,501）與附加費 |
 | `tests/coupon.test.js` | Coupon 純函式：未使用、FLOWER100 門檻（799 / 800）、SPRING10 四捨五入與 300 元上限、SUMMER50 失效、大小寫與空白正規化、輸入驗證 |
+| `tests/orderListQuery.test.js` | 訂單列表參數純函式：預設值、status 白名單（含空字串、大小寫、重複帶入）、page 門檻（0 / 1 / 2）、limit 上限（49 / 50 / 51）、非正整數與超出安全整數、offset 與 totalPages 計算 |
 | `tests/auth.test.js` | 註冊、登入、重複 Email、個人資料、非字串欄位、JSON 格式錯誤 |
 | `tests/products.test.js` | 商品列表、分頁、詳情與 404 |
 | `tests/cart.test.js` | 訪客/會員購物車 CRUD、新增與修改的數量驗證（含 0、負數、小數）、庫存上限、他人品項回 404、登入/註冊時合併訪客購物車（含庫存上限） |
-| `tests/orders.test.js` | 建單、配送費（含 API 層 1,500 元門檻）、查詢與認證、他人訂單回 404、只帶 X-Session-Id 不能建單、模擬付款僅限測試環境 |
+| `tests/orders.test.js` | 建單、配送費（含 API 層 1,500 元門檻）、查詢（含列表 `pagination`）與認證、他人訂單回 404、只帶 X-Session-Id 不能建單、模擬付款僅限測試環境 |
 | `tests/adminProducts.test.js` | 後台商品 CRUD 與權限、刪除仍在購物車中的商品、名稱驗證 |
 | `tests/adminOrders.test.js` | 後台訂單列表、詳情與篩選、未登入 401、一般會員與偽造 role 的 Token 皆回 403 |
 
@@ -148,7 +149,7 @@ Integration Test 中有兩層防護：
 
 ## Integration Test
 
-主測試檔：`tests/integration/order-checkout.integration.test.js`；優惠碼另見 `tests/integration/order-coupon.integration.test.js`（見下方「優惠碼整合測試」）
+主測試檔：`tests/integration/order-checkout.integration.test.js`；優惠碼另見 `tests/integration/order-coupon.integration.test.js`（見下方「優惠碼整合測試」），我的訂單列表另見 `tests/integration/order-list.integration.test.js`（見下方「訂單列表整合測試」）
 
 | 情境 | 主要斷言 |
 |------|----------|
@@ -178,6 +179,23 @@ Integration Test 中有兩層防護：
 | `couponCode: ''` | DB `coupon_code` 為 NULL、`discount` 為 0、總額 1520 |
 | 無效、已失效、未達門檻 | 400 `INVALID_COUPON`，無訂單與品項，庫存與購物車數量不變 |
 | `couponCode` 非字串 | 400 `VALIDATION_ERROR`，無訂單、庫存不變 |
+
+### 訂單列表整合測試
+
+`tests/integration/order-list.integration.test.js` 以 SQL 直接寫入訂單，精確控制 `created_at` 與 `status`，不需等待時間；預期順序以 SQL `ORDER BY created_at DESC, rowid DESC` 對照：
+
+| 情境 | 主要斷言 |
+|------|----------|
+| 寫入順序與建立時間不同 | 依 `created_at` 由新到舊，`pagination` 為 `{ page: 1, limit: 10, total: 3, totalPages: 1 }` |
+| 12 筆同一秒建立 | `limit=5` 三頁為 5 / 5 / 2 筆，無重複、無遺漏，同秒內較晚寫入者在前 |
+| 狀態篩選 + 分頁 | 13 筆中 7 筆 paid，`status=paid&page=3&limit=3` 回 1 筆、`total: 7`、`totalPages: 3`；pending / failed 只含該狀態 |
+| 他人訂單 | 有無 `status` 篩選皆不回傳、不計入 `total` |
+| `limit=100` | 55 筆時第 1 頁 50 筆、`limit: 50`、`totalPages: 2`，第 2 頁 5 筆 |
+| 超過最後一頁 | `page=5` 與 `page=Number.MAX_SAFE_INTEGER` 回空陣列，`total` / `totalPages` 為實際值 |
+| 沒有訂單 | `total: 0`、`totalPages: 0` |
+| 無效參數 | `status=unknown`、`status=`、重複 `status`、`page=0/-1/1.5/abc`、`limit=-1/0/空字串` 皆回 400 `VALIDATION_ERROR`、`data: null` |
+| 未登入 | 401 `UNAUTHORIZED` |
+| 前端訂單頁 | `/orders` 可取得，`orders.js` 讀取 `res.data.orders`，與新格式相容 |
 
 ### 成功建單資料
 

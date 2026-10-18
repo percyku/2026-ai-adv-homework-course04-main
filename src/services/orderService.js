@@ -34,12 +34,31 @@ function findOrderForUser(orderId, userId) {
   return db.prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?').get(orderId, userId);
 }
 
-function listOrdersForUser(userId) {
-  return db.prepare(
+/**
+ * One page of a member's orders, newest first, optionally filtered by status.
+ * Returns { orders, total } where total counts every matching order.
+ */
+function listOrdersForUser(userId, { status = null, limit, offset }) {
+  const where = status ? 'WHERE user_id = ? AND status = ?' : 'WHERE user_id = ?';
+  const params = status ? [userId, status] : [userId];
+
+  const total = db.prepare(`SELECT COUNT(*) AS count FROM orders ${where}`).get(...params).count;
+
+  // Pages past the end need no query, which also keeps huge offsets out of SQLite
+  if (offset >= total) {
+    return { orders: [], total };
+  }
+
+  // created_at has one-second precision; rowid keeps same-second orders in a stable order across pages
+  const orders = db.prepare(
     `SELECT id, order_no, subtotal, coupon_code, discount, shipping_fee, shipping_method,
             is_remote_area, is_express, total_amount, status, created_at
-     FROM orders WHERE user_id = ? ORDER BY created_at DESC`
-  ).all(userId);
+     FROM orders ${where}
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset);
+
+  return { orders, total };
 }
 
 function getOrderItems(orderId) {

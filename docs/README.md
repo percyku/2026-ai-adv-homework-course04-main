@@ -77,6 +77,12 @@ npm run postman
 - `FLOWER100`：商品小計滿 800 元折 100 元；`SPRING10`：9 折、最多折 300 元；`SUMMER50`：已失效。
 - 只折抵商品小計，不折抵運費；免運門檻以折扣後小計判斷。規則集中在 `src/utils/coupon.js`。
 
+## 我的訂單篩選與分頁
+
+- `GET /api/orders` 支援 `status`（`pending` / `paid` / `failed`）、`page`（預設 1）、`limit`（預設 10，超過 50 以 50 計）。
+- 只回傳自己的訂單，依建立時間由新到舊；回應為 `{ orders, pagination: { page, limit, total, totalPages } }`，與後台訂單列表相同。
+- `status` 不在允許值內，或 `page`、`limit` 不是正整數時回 400。參數規則集中在 `src/utils/orderListQuery.js`。
+
 ## 常用指令
 
 | 指令 | 說明 |
@@ -86,8 +92,8 @@ npm run postman
 | `npm run dev:css` | Tailwind CSS watch 模式 |
 | `npm run css:build` | 編譯並壓縮 CSS |
 | `npm run test` | 同 `npm run test:unit` |
-| `npm run test:unit` | 執行單元與 API 測試（67 項） |
-| `npm run test:integration` | 執行結帳、DB、庫存、回滾與綠界整合測試（15 項） |
+| `npm run test:unit` | 執行單元與 API 測試（128 項） |
+| `npm run test:integration` | 執行結帳、訂單列表、DB、庫存、回滾與綠界整合測試（40 項） |
 | `npm run test:e2e` | 對已啟動的 3001 服務執行綠界網路 ATM 實測（1 項） |
 | `npm run test:acceptance` | 第四場 3 個 Issue 的驗收測試；可加檔名篩選，如 `npm run test:acceptance -- coupon` |
 | `npm run openapi` | 生成 openapi.json |

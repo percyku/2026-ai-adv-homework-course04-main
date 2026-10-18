@@ -5,6 +5,9 @@
 ## [Unreleased]
 
 ### Added
+- 我的訂單篩選與分頁（Issue #3）：`GET /api/orders` 支援 `status`（`pending` / `paid` / `failed`）、`page`（預設 1）、`limit`（預設 10，超過 50 以 50 計），回應新增 `pagination: { page, limit, total, totalPages }`；`status` 不在允許值內，或 `page`、`limit` 不是正整數時回 400 `VALIDATION_ERROR`
+- `src/utils/orderListQuery.js`：訂單列表參數驗證與 pagination 組裝的純邏輯模組
+- `tests/orderListQuery.test.js`（40 項）與 `tests/integration/order-list.integration.test.js`（19 項）；Unit/API 測試增為 128 項，Integration 增為 40 項
 - 結帳優惠碼（Issue #1）：`POST /api/orders` 新增選填 `couponCode`，支援 `FLOWER100`（滿 800 折 100）、`SPRING10`（9 折、最多折 300），`SUMMER50` 已失效；無效、失效或未達門檻回 400 `INVALID_COUPON`，不建立訂單、不扣庫存、不清空購物車
 - `src/utils/coupon.js`：優惠碼規則與折扣計算的純邏輯模組，比照 Shipping 模組
 - `orders` 表新增 `coupon_code`（大寫，可為 NULL）與 `discount`（預設 0）欄位，以可重複執行的 migration 加入，舊訂單視為未使用優惠碼
@@ -15,6 +18,7 @@
 - Unit/API 測試由 55 項（含 1 項 skip）增為 67 項，Integration 由 10 項增為 15 項，涵蓋本次修正
 
 ### Changed
+- `GET /api/orders` 改為分頁回傳，不帶參數時只回最新 10 筆（原本回傳全部訂單）；前台「我的訂單」頁沿用 `data.orders`，目前只顯示最新 10 筆。排序改為 `created_at DESC, rowid DESC`，同一秒建立的訂單換頁時不會重複或遺漏
 - 訂單總額改為 `subtotal - discount + shipping_fee`，免運門檻以折扣後的商品小計判斷；綠界付款金額隨之採折扣後總額
 - 訂單編號亂數段由 5 碼加長為 9 碼（`ORD-YYYYMMDD-XXXXXXXXX`，MerchantTradeNo 為綠界上限 20 碼），降低同日撞號導致建單回 500 的機率
 - OpenAPI 新增共用的 `ErrorResponse` schema 與 `Unauthorized`、`Forbidden`、`InternalError` 回應；訂單、購物車、後台訂單端點補上 401／403／500 與錯誤回應格式

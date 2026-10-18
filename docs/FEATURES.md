@@ -9,13 +9,13 @@
 | 購物車管理 | ✅ 完成 | 雙模式認證（JWT / Session ID），登入時合併訪客購物車 |
 | 配送費用 | ✅ 完成 | 宅配/超商、滿額免基本運費、偏遠/急件附加費 |
 | 結帳優惠碼 | ✅ 完成 | 建單時可帶一組優惠碼折抵商品小計（API；結帳頁輸入欄位未實作） |
-| 訂單管理 | ✅ 完成 | 建立、查詢、模擬付款（僅測試環境） |
+| 訂單管理 | ✅ 完成 | 建立、查詢（我的訂單可依狀態篩選並分頁）、模擬付款（僅測試環境） |
 | 綠界金流串接 | ✅ 完成 | ECPay AIO 付款、QueryTradeInfo 查詢驗證 |
 | 後台商品管理 | ✅ 完成 | 商品 CRUD |
 | 後台訂單管理 | ✅ 完成 | 訂單查詢與狀態篩選 |
 | 前台頁面 | ✅ 完成 | EJS + Tailwind CSS |
 | 後台頁面 | ✅ 完成 | EJS + Tailwind CSS |
-| 測試 | ✅ 完成 | 88 項 Unit/API + 21 項 Integration + 1 項綠界真實付款 E2E |
+| 測試 | ✅ 完成 | 128 項 Unit/API + 40 項 Integration + 1 項綠界真實付款 E2E |
 | API 文件 | ✅ 完成 | Swagger/OpenAPI 生成與 Postman Collection 自動轉換 |
 
 ---
@@ -319,9 +319,44 @@ total_amount      = subtotal - discount + shipping_fee
 
 ### GET /api/orders — 訂單列表
 
-**行為描述**：回傳當前使用者的所有訂單，依建立時間降序排列。無分頁。
+**行為描述**：回傳當前使用者自己的訂單，依建立時間由新到舊排列，可依狀態篩選並分頁。回應格式與後台訂單列表相同。
+
+**Query 參數**：
+
+| 參數 | 型別 | 預設值 | 驗證規則 |
+|------|------|--------|----------|
+| status | string | 無（不篩選） | `pending` / `paid` / `failed`，其他值（含空字串、大小寫不同、重複帶入）回 400 |
+| page | integer | 1 | 正整數（接受純數字字串），否則回 400 |
+| limit | integer | 10 | 正整數，否則回 400；超過 50 以 50 計 |
+
+**回應結構**：
+```json
+{
+  "data": {
+    "orders": [{ "id": "...", "order_no": "...", "status": "paid", "total_amount": 1420, "created_at": "..." }],
+    "pagination": { "page": 1, "limit": 10, "total": 12, "totalPages": 2 }
+  },
+  "error": null,
+  "message": "成功"
+}
+```
+
+**業務邏輯**：
+- 參數驗證集中在 `src/utils/orderListQuery.js`；只有「未帶參數」才套用預設值，`?page=`、`?limit=` 視同不是正整數
+- 查詢條件一律含 `user_id`，`total` 只計算自己且符合狀態的訂單
+- 排序為 `created_at DESC, rowid DESC`：`created_at` 只精確到秒，同秒建立的訂單以寫入順序（較新者在前）排列，換頁時不會重複或漏掉
+- `offset = (page - 1) × limit`；頁碼超過最後一頁時回傳空陣列，`pagination` 仍為實際的 `total` 與 `totalPages`
+- `totalPages = ceil(total / limit)`，沒有訂單時為 0
 
 **回應欄位**：id, order_no, subtotal, coupon_code, discount, shipping_fee, shipping_method, is_remote_area, is_express, total_amount, status, created_at
+
+**錯誤情境**：
+
+| 狀態碼 | 錯誤碼 | 情境 |
+|--------|--------|------|
+| 400 | VALIDATION_ERROR | status 不在允許值內 |
+| 400 | VALIDATION_ERROR | page 或 limit 不是正整數（如 `0`、`-1`、`1.5`、`abc`、空字串） |
+| 401 | UNAUTHORIZED | 未帶 JWT |
 
 ### GET /api/orders/:id — 訂單詳情
 
