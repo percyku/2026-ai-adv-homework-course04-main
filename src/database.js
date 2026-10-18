@@ -62,6 +62,8 @@ function initializeDatabase() {
       shipping_method TEXT NOT NULL DEFAULT 'home_delivery',
       is_remote_area INTEGER NOT NULL DEFAULT 0,
       is_express INTEGER NOT NULL DEFAULT 0,
+      coupon_code TEXT,
+      discount INTEGER NOT NULL DEFAULT 0,
       total_amount INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'failed')),
 
@@ -87,19 +89,22 @@ function initializeDatabase() {
     // Column already exists, ignore
   }
 
-  // Migration: add shipping snapshot columns without changing legacy order totals.
+  // Migration: add shipping and coupon snapshot columns without changing legacy order totals.
+  // Legacy orders had no coupon, so coupon_code stays NULL and discount defaults to 0.
   const orderColumns = new Set(
     db.prepare('PRAGMA table_info(orders)').all().map(column => column.name)
   );
-  const shippingColumns = [
+  const snapshotColumns = [
     ['subtotal', 'INTEGER NOT NULL DEFAULT 0'],
     ['shipping_fee', 'INTEGER NOT NULL DEFAULT 0'],
     ['shipping_method', "TEXT NOT NULL DEFAULT 'home_delivery'"],
     ['is_remote_area', 'INTEGER NOT NULL DEFAULT 0'],
-    ['is_express', 'INTEGER NOT NULL DEFAULT 0']
+    ['is_express', 'INTEGER NOT NULL DEFAULT 0'],
+    ['coupon_code', 'TEXT'],
+    ['discount', 'INTEGER NOT NULL DEFAULT 0']
   ];
 
-  for (const [column, definition] of shippingColumns) {
+  for (const [column, definition] of snapshotColumns) {
     if (!orderColumns.has(column)) {
       db.exec(`ALTER TABLE orders ADD COLUMN ${column} ${definition}`);
     }
