@@ -105,6 +105,7 @@ describe('Orders API', () => {
     expect(res.body.data).toHaveProperty('orders');
     expect(Array.isArray(res.body.data.orders)).toBe(true);
     expect(res.body.data.orders.length).toBeGreaterThan(0);
+    expect(res.body.data.pagination).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
   });
 
   it('should get order detail', async () => {

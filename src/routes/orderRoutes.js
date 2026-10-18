@@ -4,6 +4,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const { queryTradeInfo } = require('../utils/ecpay');
 const { SHIPPING_METHODS, calculateShipping } = require('../utils/shipping');
 const { CouponError, applyCoupon } = require('../utils/coupon');
+const { OrderListQueryError, parseOrderListQuery, buildPagination } = require('../utils/orderListQuery');
 const {
   StockInsufficientError,
   serializeOrder,
@@ -288,10 +289,32 @@ router.post('/', (req, res) => {
  * @openapi
  * /api/orders:
  *   get:
- *     summary: 自己的訂單列表
+ *     summary: 自己的訂單列表（依建立時間由新到舊，可依狀態篩選並分頁）
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         description: 只回傳此狀態的訂單；省略時回傳全部
+ *         schema:
+ *           type: string
+ *           enum: [pending, paid, failed]
+ *       - in: query
+ *         name: page
+ *         description: 頁碼，須為正整數
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         description: 每頁筆數，須為正整數；超過 50 以 50 計
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 50
+ *           default: 10
  *     responses:
  *       200:
  *         description: 成功
@@ -329,19 +352,52 @@ router.post('/', (req, res) => {
  *                             type: string
  *                           created_at:
  *                             type: string
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                         limit:
+ *                           type: integer
+ *                           description: 實際採用的每頁筆數（超過 50 時為 50）
+ *                         total:
+ *                           type: integer
+ *                           description: 符合條件的訂單總數
+ *                         totalPages:
+ *                           type: integer
+ *                           description: 總頁數，無訂單時為 0
  *                 error:
  *                   type: string
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       400:
+ *         description: status 不在允許值內，或 page、limit 不是正整數（VALIDATION_ERROR）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
 router.get('/', (req, res) => {
-  const orders = listOrdersForUser(req.user.userId);
+  let query;
+  try {
+    query = parseOrderListQuery(req.query);
+  } catch (err) {
+    if (err instanceof OrderListQueryError) {
+      return res.status(400).json({ data: null, error: 'VALIDATION_ERROR', message: err.message });
+    }
+    throw err;
+  }
+
+  const { orders, total } = listOrdersForUser(req.user.userId, query);
 
   res.json({
-    data: { orders: orders.map(serializeOrder) },
+    data: {
+      orders: orders.map(serializeOrder),
+      pagination: buildPagination({ page: query.page, limit: query.limit, total })
+    },
     error: null,
     message: '成功'
   });

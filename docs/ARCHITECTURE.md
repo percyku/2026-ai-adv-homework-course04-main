@@ -36,6 +36,7 @@
 │   │   ├── ecpay.js                # 綠界 ECPay 工具：CheckMacValue 簽章、URL 編碼、AIO 表單產生、QueryTradeInfo 查詢
 │   │   ├── shipping.js             # 配送費用純邏輯：基本運費、免運門檻、偏遠/急件附加費
 │   │   ├── coupon.js               # 結帳優惠碼純邏輯：優惠碼定義、正規化、門檻與折扣計算
+│   │   ├── orderListQuery.js       # 我的訂單列表參數驗證：status 白名單、page/limit 正整數與 50 筆上限、pagination 組裝
 │   │   └── validators.js           # 共用輸入驗證：非空字串、選填字串、正整數
 │   ├── services/
 │   │   ├── orderService.js         # 訂單查詢、序列化、訂單編號與建單 transaction（依賴資料庫）
@@ -102,7 +103,8 @@
     ├── integration/
     │   ├── helpers.js               # fixture、DB reset 與查詢輔助
     │   ├── order-checkout.integration.test.js # 結帳、DB、回滾、ECPay 整合測試
-    │   └── order-coupon.integration.test.js   # 優惠碼快照、ECPay 折扣後金額、無效優惠碼不寫入
+    │   ├── order-coupon.integration.test.js   # 優惠碼快照、ECPay 折扣後金額、無效優惠碼不寫入
+    │   └── order-list.integration.test.js     # 我的訂單排序、狀態篩選、分頁、他人訂單隔離與參數驗證
     ├── e2e/
     │   ├── global-setup.js          # 僅探測既有服務，不啟動伺服器
     │   └── ecpay-atm-payment.spec.js # UI 建單與綠界土地銀行付款 E2E
@@ -113,6 +115,7 @@
     │   └── order-filter.test.js     # Issue C：我的訂單篩選與分頁
     ├── shipping.test.js            # Shipping 模組單元測試（13 項）
     ├── coupon.test.js              # Coupon 模組單元測試（21 項）
+    ├── orderListQuery.test.js      # 訂單列表參數模組單元測試（43 項）
     ├── auth.test.js                # 認證 API 測試
     ├── products.test.js            # 商品 API 測試
     ├── cart.test.js                # 購物車 API 測試
@@ -183,7 +186,7 @@ server.js
 | 方法 | 路徑 | 認證 | 說明 | 檔案 |
 |------|------|------|------|------|
 | POST | `/api/orders` | JWT | 從購物車建立訂單（可帶優惠碼；伺服器重算折扣、運費與總額） | orderRoutes.js |
-| GET | `/api/orders` | JWT | 自己的訂單列表 | orderRoutes.js |
+| GET | `/api/orders` | JWT | 自己的訂單列表（`status` 篩選、`page`/`limit` 分頁） | orderRoutes.js |
 | GET | `/api/orders/:id` | JWT | 訂單詳情 | orderRoutes.js |
 | PATCH | `/api/orders/:id/pay` | JWT | 模擬付款（僅 `NODE_ENV=test`，其他環境 404） | orderRoutes.js |
 | POST | `/api/orders/:id/check-payment` | JWT | 查詢綠界付款狀態 | orderRoutes.js |
@@ -430,6 +433,21 @@ server.js
 ## Coupon 模組
 
 `src/utils/coupon.js` 同樣不依賴 Express 或資料庫。`applyCoupon({ subtotal, couponCode })` 將優惠碼正規化為大寫、檢查是否存在、是否有效與使用門檻，回傳 `discount` 與 `discountedSubtotal`；不合規則時拋出 `CouponError`，由路由轉為 400 `INVALID_COUPON`。建單路由把 `discountedSubtotal` 交給 Shipping 模組，因此免運門檻以折扣後小計判斷，折扣本身不折抵運費。
+
+## 資料流：我的訂單列表
+
+```
+用戶呼叫 GET /api/orders?status=&page=&limit= (需 JWT)
+│
+├─ 1. orderListQuery.parseOrderListQuery(req.query)
+│      status 不在白名單、page/limit 不是正整數 → OrderListQueryError → 400 VALIDATION_ERROR
+│      limit > 50 → 以 50 計；計算 offset = (page - 1) × limit
+├─ 2. orderService.listOrdersForUser(userId, { status, limit, offset })
+│      ├─ SELECT COUNT(*) WHERE user_id = ? [AND status = ?] → total
+│      └─ offset < total 時 SELECT ... ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?
+│         （超過最後一頁直接回空陣列，不查詢）
+└─ 3. 回傳 { orders, pagination: buildPagination({ page, limit, total }) }
+```
 
 ## 綠界金流付款流程
 
