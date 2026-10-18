@@ -296,6 +296,11 @@
                   },
                   "isExpress": {
                     "type": "boolean"
+                  },
+                  "couponCode": {
+                    "type": "string",
+                    "description": "選填優惠碼（不分大小寫；空字串視同未使用）",
+                    "example": "FLOWER100"
                   }
                 }
               }
@@ -322,6 +327,15 @@
                         "subtotal": {
                           "type": "integer"
                         },
+                        "coupon_code": {
+                          "type": "string",
+                          "nullable": true,
+                          "description": "使用的優惠碼（大寫），未使用為 null"
+                        },
+                        "discount": {
+                          "type": "integer",
+                          "description": "折扣金額，未使用優惠碼為 0"
+                        },
                         "shipping_fee": {
                           "type": "integer"
                         },
@@ -339,7 +353,8 @@
                           "type": "boolean"
                         },
                         "total_amount": {
-                          "type": "integer"
+                          "type": "integer",
+                          "description": "subtotal - discount + shipping_fee"
                         },
                         "status": {
                           "type": "string"
@@ -379,7 +394,7 @@
             }
           },
           "400": {
-            "description": "購物車為空、購物車數量不是正整數、庫存不足或收件資訊缺失",
+            "description": "購物車為空、購物車數量不是正整數、庫存不足、收件資訊缺失，或優惠碼無效、已失效、未達門檻（INVALID_COUPON）",
             "content": {
               "application/json": {
                 "schema": {
@@ -429,6 +444,13 @@
                                 "type": "string"
                               },
                               "subtotal": {
+                                "type": "integer"
+                              },
+                              "coupon_code": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "discount": {
                                 "type": "integer"
                               },
                               "shipping_fee": {
@@ -517,6 +539,13 @@
                           "type": "string"
                         },
                         "subtotal": {
+                          "type": "integer"
+                        },
+                        "coupon_code": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "discount": {
                           "type": "integer"
                         },
                         "shipping_fee": {
@@ -1794,6 +1823,13 @@
                               "subtotal": {
                                 "type": "integer"
                               },
+                              "coupon_code": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "discount": {
+                                "type": "integer"
+                              },
                               "shipping_fee": {
                                 "type": "integer"
                               },
@@ -1903,6 +1939,13 @@
                           "type": "string"
                         },
                         "subtotal": {
+                          "type": "integer"
+                        },
+                        "coupon_code": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "discount": {
                           "type": "integer"
                         },
                         "shipping_fee": {

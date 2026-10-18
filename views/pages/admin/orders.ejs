@@ -142,6 +142,7 @@
             </table>
             <div class="mt-3 pt-2 border-t border-gray-100 text-right space-y-1">
               <p class="text-text-secondary">商品小計 NT$ {{ detailOrder.subtotal.toLocaleString() }}</p>
+              <p v-if="detailOrder.discount > 0" class="text-text-secondary">優惠折扣（{{ detailOrder.coupon_code }}）− NT$ {{ detailOrder.discount.toLocaleString() }}</p>
               <p class="text-text-secondary">運費 NT$ {{ detailOrder.shipping_fee.toLocaleString() }}</p>
               <p class="font-bold text-rose-primary text-lg">總計 NT$ {{ detailOrder.total_amount.toLocaleString() }}</p>
             </div>

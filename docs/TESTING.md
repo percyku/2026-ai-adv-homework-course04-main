@@ -13,10 +13,10 @@
 ## 執行指令
 
 ```bash
-# 單元與 API 測試（7 個檔案、67 項測試）
+# 單元與 API 測試（8 個檔案、88 項測試）
 npm run test:unit
 
-# 結帳、訂單、DB、庫存、回滾與綠界整合測試（15 項測試）
+# 結帳、訂單、優惠碼、DB、庫存、回滾與綠界整合測試（2 個檔案、21 項測試）
 npm run test:integration
 
 # 已另行啟動 http://localhost:3001 後，執行真實付款 E2E
@@ -136,6 +136,7 @@ Integration Test 中有兩層防護：
 | 檔案 | 範圍 |
 |------|------|
 | `tests/shipping.test.js` | Shipping 純函式、門檻（1,499 / 1,500 / 1,501）與附加費 |
+| `tests/coupon.test.js` | Coupon 純函式：未使用、FLOWER100 門檻（799 / 800）、SPRING10 四捨五入與 300 元上限、SUMMER50 失效、大小寫與空白正規化、輸入驗證 |
 | `tests/auth.test.js` | 註冊、登入、重複 Email、個人資料、非字串欄位、JSON 格式錯誤 |
 | `tests/products.test.js` | 商品列表、分頁、詳情與 404 |
 | `tests/cart.test.js` | 訪客/會員購物車 CRUD、新增與修改的數量驗證（含 0、負數、小數）、庫存上限、他人品項回 404、登入/註冊時合併訪客購物車（含庫存上限） |
@@ -147,7 +148,7 @@ Integration Test 中有兩層防護：
 
 ## Integration Test
 
-主測試檔：`tests/integration/order-checkout.integration.test.js`
+主測試檔：`tests/integration/order-checkout.integration.test.js`；優惠碼另見 `tests/integration/order-coupon.integration.test.js`（見下方「優惠碼整合測試」）
 
 | 情境 | 主要斷言 |
 |------|----------|
@@ -166,6 +167,17 @@ Integration Test 中有兩層防護：
 | 購物車小數數量 | DB 內數量為 0.5 時建單回 400 `VALIDATION_ERROR`，無訂單、無扣庫存 |
 | 同商品多列 | 兩列各 6 件、庫存 10，依加總判斷回 400 `STOCK_INSUFFICIENT` |
 | 過期的購物車快照 | 直接呼叫 `createOrderFromCart`：庫存在檢查後被扣走時拋出 `StockInsufficientError` 並整筆回滾；只刪除快照中的購物車品項 |
+
+### 優惠碼整合測試
+
+`tests/integration/order-coupon.integration.test.js`，fixture 為單價 700 元、庫存 10 的商品購買 2 件，宅配、無附加費：
+
+| 情境 | 主要斷言 |
+|------|----------|
+| 使用 ` flower100 `（小寫加空白） | 回應與 DB 皆為 `coupon_code: 'FLOWER100'`、`discount: 100`、`total_amount: 1420`；庫存 10 → 8、購物車清空；訂單列表帶出優惠碼；綠界表單 `TotalAmount` 為 1420 且簽章有效 |
+| `couponCode: ''` | DB `coupon_code` 為 NULL、`discount` 為 0、總額 1520 |
+| 無效、已失效、未達門檻 | 400 `INVALID_COUPON`，無訂單與品項，庫存與購物車數量不變 |
+| `couponCode` 非字串 | 400 `VALIDATION_ERROR`，無訂單、庫存不變 |
 
 ### 成功建單資料
 

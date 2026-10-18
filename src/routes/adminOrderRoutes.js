@@ -60,6 +60,11 @@ router.use(authMiddleware, adminMiddleware);
  *                             type: string
  *                           subtotal:
  *                             type: integer
+ *                           coupon_code:
+ *                             type: string
+ *                             nullable: true
+ *                           discount:
+ *                             type: integer
  *                           shipping_fee:
  *                             type: integer
  *                           shipping_method:
@@ -165,6 +170,11 @@ router.get('/', (req, res) => {
  *                     recipient_address:
  *                       type: string
  *                     subtotal:
+ *                       type: integer
+ *                     coupon_code:
+ *                       type: string
+ *                       nullable: true
+ *                     discount:
  *                       type: integer
  *                     shipping_fee:
  *                       type: integer

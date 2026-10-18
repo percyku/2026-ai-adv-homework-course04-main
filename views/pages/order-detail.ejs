@@ -70,6 +70,10 @@
             <td colspan="3" class="pt-3 text-right text-text-secondary">商品小計</td>
             <td class="pt-3 text-right text-text-primary">NT$ {{ order.subtotal.toLocaleString() }}</td>
           </tr>
+          <tr v-if="order.discount > 0">
+            <td colspan="3" class="pt-2 text-right text-text-secondary">優惠折扣（{{ order.coupon_code }}）</td>
+            <td class="pt-2 text-right text-sage">− NT$ {{ order.discount.toLocaleString() }}</td>
+          </tr>
           <tr>
             <td colspan="3" class="pt-2 text-right text-text-secondary">運費</td>
             <td class="pt-2 text-right text-text-primary">NT$ {{ order.shipping_fee.toLocaleString() }}</td>

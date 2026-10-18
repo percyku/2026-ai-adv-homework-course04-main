@@ -5,11 +5,17 @@
 ## [Unreleased]
 
 ### Added
+- 結帳優惠碼（Issue #1）：`POST /api/orders` 新增選填 `couponCode`，支援 `FLOWER100`（滿 800 折 100）、`SPRING10`（9 折、最多折 300），`SUMMER50` 已失效；無效、失效或未達門檻回 400 `INVALID_COUPON`，不建立訂單、不扣庫存、不清空購物車
+- `src/utils/coupon.js`：優惠碼規則與折扣計算的純邏輯模組，比照 Shipping 模組
+- `orders` 表新增 `coupon_code`（大寫，可為 NULL）與 `discount`（預設 0）欄位，以可重複執行的 migration 加入，舊訂單視為未使用優惠碼
+- 建立訂單、訂單列表、訂單詳情與後台訂單 API 回傳 `coupon_code` 與 `discount`；前台與後台訂單詳情有折扣時顯示「優惠折扣」
+- `tests/coupon.test.js`（21 項）與 `tests/integration/order-coupon.integration.test.js`（6 項）
 - `docs/ai-review.md`：訂單、付款、運費、購物車的 AI 審查報告，以及每一項的修正狀態
 - `.claude/agents/`：專案用的 code-reviewer、security-reviewer、test-runner subagent
 - Unit/API 測試由 55 項（含 1 項 skip）增為 67 項，Integration 由 10 項增為 15 項，涵蓋本次修正
 
 ### Changed
+- 訂單總額改為 `subtotal - discount + shipping_fee`，免運門檻以折扣後的商品小計判斷；綠界付款金額隨之採折扣後總額
 - 訂單編號亂數段由 5 碼加長為 9 碼（`ORD-YYYYMMDD-XXXXXXXXX`，MerchantTradeNo 為綠界上限 20 碼），降低同日撞號導致建單回 500 的機率
 - OpenAPI 新增共用的 `ErrorResponse` schema 與 `Unauthorized`、`Forbidden`、`InternalError` 回應；訂單、購物車、後台訂單端點補上 401／403／500 與錯誤回應格式
 - 抽出 `src/services/orderService.js`（訂單查詢、序列化與建單 transaction）與 `src/services/paymentService.js`（QueryTradeInfo 結果判斷與付款狀態更新）
