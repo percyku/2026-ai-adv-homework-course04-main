@@ -14,7 +14,7 @@
 | 後台訂單管理 | ✅ 完成 | 訂單查詢與狀態篩選 |
 | 前台頁面 | ✅ 完成 | EJS + Tailwind CSS |
 | 後台頁面 | ✅ 完成 | EJS + Tailwind CSS |
-| 測試 | ✅ 完成 | 55 項 Unit/API + 10 項 Integration + 1 項綠界真實付款 E2E |
+| 測試 | ✅ 完成 | 67 項 Unit/API + 15 項 Integration + 1 項綠界真實付款 E2E |
 | API 文件 | ✅ 完成 | Swagger/OpenAPI 生成與 Postman Collection 自動轉換 |
 
 ---
@@ -62,7 +62,7 @@
 **業務邏輯**：
 - 使用 `bcrypt.compareSync()` 比對密碼
 - 無論是 email 不存在或密碼錯誤，一律回 401 + 相同訊息
-- Token 有效期 7 天，payload 包含 `{ userId, email, role }`
+- Token 有效期 7 天，payload 包含 `{ userId, email, role }`；驗證 Token 時，email 與 role 以資料庫目前的值為準，不採用 payload 內的值
 - 若請求帶 `X-Session-Id`，登入成功後將訪客購物車併入會員購物車：同商品數量相加、以目前庫存為上限，庫存為 0 的品項捨棄；合併後清空該訪客購物車
 
 **錯誤情境**：
@@ -260,12 +260,13 @@
 1. 驗證收件人欄位、Email 格式及配送條件
 2. 從 `cart_items JOIN products` 取得購物車品項（僅查 `user_id`，不含 session）
 3. 購物車為空 → 400 CART_EMPTY
-4. 逐品項檢查庫存，不足者收集名稱 → 400「以下商品庫存不足：名稱1, 名稱2」
-5. 依資料庫價格計算 `subtotal = Σ(price × quantity)`
-6. 調用 Shipping 模組計算 `shippingFee`，並得 `totalAmount = subtotal + shippingFee`
-7. 生成 `orderNo = ORD-YYYYMMDD-{5碼UUID大寫}`（日期採台北時間）
-8. **Transaction**：INSERT order（含配送快照） → INSERT order_items（快照名稱+價格） → UPDATE stock → DELETE cart_items
-9. 回傳 201 + 訂單詳情（含 `subtotal`、`shipping_fee`、`total_amount`）
+4. 購物車數量不是正整數（例如舊資料中的小數）→ 400 VALIDATION_ERROR
+5. 同一商品的數量加總後檢查庫存，不足者收集名稱 → 400「以下商品庫存不足：名稱1, 名稱2」
+6. 依資料庫價格計算 `subtotal = Σ(price × quantity)`
+7. 調用 Shipping 模組計算 `shippingFee`，並得 `totalAmount = subtotal + shippingFee`
+8. 生成 `orderNo = ORD-YYYYMMDD-{9碼UUID大寫}`（日期採台北時間；去掉連字號即為 20 碼的綠界 MerchantTradeNo）
+9. **Transaction**：INSERT order（含配送快照） → INSERT order_items（快照名稱+價格） → UPDATE stock（條件 `stock >= quantity`，未更新到即整筆回滾並回 400 STOCK_INSUFFICIENT） → DELETE 本次結帳讀到的 cart_items
+10. 回傳 201 + 訂單詳情（含 `subtotal`、`shipping_fee`、`total_amount`）
 
 **錯誤情境**：
 
@@ -275,7 +276,9 @@
 | 400 | VALIDATION_ERROR | Email 格式不正確 |
 | 400 | VALIDATION_ERROR | 配送方式不支援，或偏遠/急件旗標非 boolean |
 | 400 | CART_EMPTY | 購物車為空 |
-| 400 | STOCK_INSUFFICIENT | 庫存不足（訊息中列出所有不足商品名稱） |
+| 400 | VALIDATION_ERROR | 購物車商品數量不是正整數 |
+| 400 | STOCK_INSUFFICIENT | 庫存不足（訊息中列出所有不足商品名稱），或建單當下庫存已被其他訂單扣走 |
+| 401 | UNAUTHORIZED | 未帶 JWT（只帶 `X-Session-Id` 也一樣） |
 
 ### GET /api/orders — 訂單列表
 
@@ -377,7 +380,7 @@
 2. 訂單已非 pending → 直接回傳現有狀態
 3. 訂單無 `merchant_trade_no` → 400
 4. 呼叫綠界 `POST /Cashier/QueryTradeInfo/V5`（TimeStamp 每次重新產生，有效期 3 分鐘）
-5. `TradeStatus === '1'` 時，先驗證回應的 CheckMacValue，並核對 `MerchantTradeNo`、`TradeAmt` 與訂單一致；任一不符 → 500 `ECPAY_QUERY_ERROR`，訂單維持 pending
+5. `TradeStatus === '1'` 時，先驗證回應的 CheckMacValue（缺少簽章視同驗證失敗），並核對 `MerchantTradeNo`、`TradeAmt` 與訂單一致；任一不符 → 500 `ECPAY_QUERY_ERROR`，訂單維持 pending
 6. 驗證通過 → 以 `WHERE status = 'pending'` 條件更新為 `paid`（狀態不可逆），回傳成功
 7. 其他 TradeStatus → 回傳「尚未完成付款」，不改變訂單狀態
 

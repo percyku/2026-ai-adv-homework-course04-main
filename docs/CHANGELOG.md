@@ -4,14 +4,33 @@
 
 ## [Unreleased]
 
+### Added
+- `docs/ai-review.md`：訂單、付款、運費、購物車的 AI 審查報告，以及每一項的修正狀態
+- `.claude/agents/`：專案用的 code-reviewer、security-reviewer、test-runner subagent
+- Unit/API 測試由 55 項（含 1 項 skip）增為 67 項，Integration 由 10 項增為 15 項，涵蓋本次修正
+
 ### Changed
+- 訂單編號亂數段由 5 碼加長為 9 碼（`ORD-YYYYMMDD-XXXXXXXXX`，MerchantTradeNo 為綠界上限 20 碼），降低同日撞號導致建單回 500 的機率
+- OpenAPI 新增共用的 `ErrorResponse` schema 與 `Unauthorized`、`Forbidden`、`InternalError` 回應；訂單、購物車、後台訂單端點補上 401／403／500 與錯誤回應格式
 - 抽出 `src/services/orderService.js`（訂單查詢、序列化與建單 transaction）與 `src/services/paymentService.js`（QueryTradeInfo 結果判斷與付款狀態更新）
 - 新增 `src/utils/validators.js` 統一路由輸入驗證；Shipping 模組改以規則表描述，單元測試改為 table-driven
 - `postman_collection.json` 不進版控（列入 `.gitignore`），需要時以 `npm run postman` 產生；路由變更後只需以 `npm run openapi` 同步 `openapi.json`。`docs/TESTING.md` 補上產生與匯入步驟
 - `scripts/generate-postman.js` 產生結果固定，同一份 OpenAPI 重跑不再出現亂數差異
 
 ### Fixed
+- `PATCH /api/cart/:itemId` 改用與新增相同的正整數驗證：小數數量不再寫入 DB，避免訂單金額與庫存出現小數（例如數量 0.5 只收半價）；0 與負數改回 400，不再回 500
+- 建單時購物車若有非正整數數量（修正前留下的舊資料），回 400 `VALIDATION_ERROR`
+- 免運門檻改為 `>=`：商品小計剛好 1,500 元時免基本運費，與規格及結帳頁顯示一致；移除對應測試的 `it.skip`
+- 建單的庫存檢查改為依商品加總數量
+- 扣庫存加上 `stock >= quantity` 條件並檢查更新筆數：庫存在檢查後被扣走時整筆回滾並回 400 `STOCK_INSUFFICIENT`，不再回 500；建單只刪除本次結帳讀到的購物車品項
+- `POST /api/orders/:id/check-payment` 的非同步錯誤改交給 errorHandler，請求不再卡住沒有回應
+- 頁面渲染失敗時回傳通用訊息，不再把 `err.message` 送到瀏覽器
 - 修正 macOS 上 Vitest 測試隨機失敗（401、200 或逾時）：supertest 自開的臨時伺服器綁在 `::`、卻連到 `127.0.0.1`，可能連到同埠的其他程式。新增 `tests/setup/testServer.js` 先在 `127.0.0.1` 開好伺服器，Unit、Integration 與驗收測試皆改用它
+
+### Security
+- `GET /api/orders/:id` 改為只能查詢自己的訂單，他人訂單回 404（原本可讀取他人的收件人姓名、Email 與地址）
+- QueryTradeInfo 的「已付款」回應缺少 CheckMacValue 時視為驗證失敗，不再跳過驗簽
+- authMiddleware 與購物車 dualAuth 改以資料庫的 role、email 為準，不採用 JWT payload；偽造 role 或已被降權的 Token 無法存取後台
 
 ## [1.2.0] - 2026-10-06
 

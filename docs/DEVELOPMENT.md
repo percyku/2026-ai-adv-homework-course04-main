@@ -21,6 +21,8 @@
 
 > **注意**：Request Body 使用 camelCase，但 Response 使用 snake_case（直接映射資料庫欄位）。此為現有設計決策。
 
+> **例外**：`tests/integration/` 與 `tests/e2e/` 的測試檔使用 kebab-case，並以後綴區分類型：Integration 為 `*.integration.test.js`（`vitest.integration.config.js` 只收錄此後綴），E2E 為 `*.spec.js`（Playwright）。例如 `order-checkout.integration.test.js`、`ecpay-atm-payment.spec.js`。
+
 ## 模組系統
 
 本專案使用 **CommonJS**（`require` / `module.exports`）。

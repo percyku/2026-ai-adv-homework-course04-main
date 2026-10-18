@@ -14,7 +14,7 @@ function dualAuth(req, res, next) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 
-      const user = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.userId);
+      const user = db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(decoded.userId);
       if (!user) {
         return res.status(401).json({
           data: null,
@@ -23,7 +23,7 @@ function dualAuth(req, res, next) {
         });
       }
 
-      req.user = { userId: decoded.userId, email: decoded.email, role: decoded.role };
+      req.user = { userId: user.id, email: user.email, role: user.role };
       return next();
     } catch (err) {
       // If Authorization header is present but token is invalid, return 401 immediately
@@ -102,6 +102,8 @@ function getOwnerCondition(req) {
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  */
 router.get('/', dualAuth, (req, res) => {
   const owner = getOwnerCondition(req);
@@ -182,8 +184,18 @@ router.get('/', dualAuth, (req, res) => {
  *                   type: string
  *       400:
  *         description: 參數缺失或庫存不足
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         description: 商品不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/', dualAuth, (req, res) => {
   const { productId, quantity = 1 } = req.body;
@@ -285,17 +297,27 @@ router.post('/', dualAuth, (req, res) => {
  *                 message:
  *                   type: string
  *       400:
- *         description: 庫存不足
+ *         description: quantity 不是正整數（VALIDATION_ERROR），或庫存不足（STOCK_INSUFFICIENT）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         description: 購物車項目不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.patch('/:itemId', dualAuth, (req, res) => {
   const { itemId } = req.params;
   const { quantity } = req.body;
 
-  const qty = Number(quantity);
-  if (Number.isNaN(qty)) {
-    return res.status(400).json({ data: null, error: 'VALIDATION_ERROR', message: 'quantity 必須為數字' });
+  const qty = parsePositiveInteger(quantity);
+  if (qty === null) {
+    return res.status(400).json({ data: null, error: 'VALIDATION_ERROR', message: 'quantity 必須為正整數' });
   }
 
   const owner = getOwnerCondition(req);
@@ -351,8 +373,14 @@ router.patch('/:itemId', dualAuth, (req, res) => {
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         description: 購物車項目不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.delete('/:itemId', dualAuth, (req, res) => {
   const { itemId } = req.params;

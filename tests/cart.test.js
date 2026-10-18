@@ -110,6 +110,92 @@ describe('Cart API', () => {
     }
   });
 
+  it('should reject non-positive-integer quantity on update and keep the stored quantity', async () => {
+    const guestSessionId = 'patch-invalid-' + Date.now();
+    const addRes = await request(app)
+      .post('/api/cart')
+      .set('X-Session-Id', guestSessionId)
+      .send({ productId, quantity: 2 });
+    const itemId = addRes.body.data.id;
+
+    for (const quantity of [0, -1, 0.5, 1e-300, 'abc', '', null, true, [2]]) {
+      const res = await request(app)
+        .patch(`/api/cart/${itemId}`)
+        .set('X-Session-Id', guestSessionId)
+        .send({ quantity });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ data: null, error: 'VALIDATION_ERROR', message: 'quantity 必須為正整數' });
+    }
+
+    const cartRes = await request(app)
+      .get('/api/cart')
+      .set('X-Session-Id', guestSessionId);
+    expect(cartRes.body.data.items).toHaveLength(1);
+    expect(cartRes.body.data.items[0]).toHaveProperty('quantity', 2);
+  });
+
+  it('should reject an update above stock and accept one equal to stock', async () => {
+    const adminToken = await getAdminToken();
+    const productRes = await request(app)
+      .post('/api/admin/products')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: '庫存上限測試花束', price: 500, stock: 3 });
+    const limitedProductId = productRes.body.data.id;
+
+    const guestSessionId = 'patch-stock-' + Date.now();
+    const addRes = await request(app)
+      .post('/api/cart')
+      .set('X-Session-Id', guestSessionId)
+      .send({ productId: limitedProductId, quantity: 1 });
+    const itemId = addRes.body.data.id;
+
+    const over = await request(app)
+      .patch(`/api/cart/${itemId}`)
+      .set('X-Session-Id', guestSessionId)
+      .send({ quantity: 4 });
+    expect(over.status).toBe(400);
+    expect(over.body).toHaveProperty('data', null);
+    expect(over.body).toHaveProperty('error', 'STOCK_INSUFFICIENT');
+
+    const exact = await request(app)
+      .patch(`/api/cart/${itemId}`)
+      .set('X-Session-Id', guestSessionId)
+      .send({ quantity: 3 });
+    expect(exact.status).toBe(200);
+    expect(exact.body.data).toHaveProperty('quantity', 3);
+  });
+
+  it("should not update or remove another owner's cart item", async () => {
+    const ownerSessionId = 'owner-' + Date.now();
+    const addRes = await request(app)
+      .post('/api/cart')
+      .set('X-Session-Id', ownerSessionId)
+      .send({ productId, quantity: 1 });
+    const itemId = addRes.body.data.id;
+    const { token } = await registerUser();
+
+    const asOtherGuest = await request(app)
+      .patch(`/api/cart/${itemId}`)
+      .set('X-Session-Id', 'other-guest-' + Date.now())
+      .send({ quantity: 2 });
+    const asMember = await request(app)
+      .delete(`/api/cart/${itemId}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    for (const res of [asOtherGuest, asMember]) {
+      expect(res.status).toBe(404);
+      expect(res.body).toHaveProperty('data', null);
+      expect(res.body).toHaveProperty('error', 'NOT_FOUND');
+    }
+
+    const ownerCart = await request(app)
+      .get('/api/cart')
+      .set('X-Session-Id', ownerSessionId);
+    expect(ownerCart.body.data.items).toHaveLength(1);
+    expect(ownerCart.body.data.items[0]).toHaveProperty('quantity', 1);
+  });
+
   it('should merge the guest cart into the member cart on login', async () => {
     const guestSessionId = 'merge-login-' + Date.now();
     const email = `merge-${Date.now()}@example.com`;

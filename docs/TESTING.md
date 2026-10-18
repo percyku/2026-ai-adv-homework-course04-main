@@ -13,10 +13,10 @@
 ## 執行指令
 
 ```bash
-# 單元與 API 測試（7 個檔案、55 項測試）
+# 單元與 API 測試（7 個檔案、67 項測試）
 npm run test:unit
 
-# 結帳、訂單、DB、庫存、回滾與綠界整合測試（10 項測試）
+# 結帳、訂單、DB、庫存、回滾與綠界整合測試（15 項測試）
 npm run test:integration
 
 # 已另行啟動 http://localhost:3001 後，執行真實付款 E2E
@@ -135,13 +135,13 @@ Integration Test 中有兩層防護：
 
 | 檔案 | 範圍 |
 |------|------|
-| `tests/shipping.test.js` | Shipping 純函式、門檻與附加費 |
+| `tests/shipping.test.js` | Shipping 純函式、門檻（1,499 / 1,500 / 1,501）與附加費 |
 | `tests/auth.test.js` | 註冊、登入、重複 Email、個人資料、非字串欄位、JSON 格式錯誤 |
 | `tests/products.test.js` | 商品列表、分頁、詳情與 404 |
-| `tests/cart.test.js` | 訪客/會員購物車 CRUD、數量驗證、登入/註冊時合併訪客購物車（含庫存上限） |
-| `tests/orders.test.js` | 建單、配送費、查詢與認證、模擬付款僅限測試環境 |
+| `tests/cart.test.js` | 訪客/會員購物車 CRUD、新增與修改的數量驗證（含 0、負數、小數）、庫存上限、他人品項回 404、登入/註冊時合併訪客購物車（含庫存上限） |
+| `tests/orders.test.js` | 建單、配送費（含 API 層 1,500 元門檻）、查詢與認證、他人訂單回 404、只帶 X-Session-Id 不能建單、模擬付款僅限測試環境 |
 | `tests/adminProducts.test.js` | 後台商品 CRUD 與權限、刪除仍在購物車中的商品、名稱驗證 |
-| `tests/adminOrders.test.js` | 後台訂單列表、詳情與篩選 |
+| `tests/adminOrders.test.js` | 後台訂單列表、詳情與篩選、未登入 401、一般會員與偽造 role 的 Token 皆回 403 |
 
 `tests/setup.js` 提供 `app`、`request`、`getAdminToken()` 與 `registerUser()` 等共用輔助。其中 `app` 來自 `tests/setup/testServer.js`，是已在 `127.0.0.1` 啟動的測試伺服器；新增 API 測試時請沿用，不要直接 `require('../app')`，否則在 macOS 上可能連到同埠的其他程式而隨機失敗。
 
@@ -161,7 +161,11 @@ Integration Test 中有兩層防護：
 | transaction 回滾 | 臨時 SQLite trigger 使第二筆品項寫入失敗，驗證訂單/品項/庫存/購物車全數回滾 |
 | ECPay AIO 表單 | staging action、MerchantTradeNo、TotalAmount、ItemName、URL 與 CheckMacValue |
 | QueryTradeInfo | mock 已付（附有效 CheckMacValue）、未付、HTTP 錯誤；驗證 API 與 DB 狀態 |
-| QueryTradeInfo 驗證 | 簽章遭竄改、金額不符的「已付」回應皆回 500，訂單維持 pending |
+| QueryTradeInfo 驗證 | 簽章遭竄改、缺少簽章、金額不符、交易編號不符的「已付」回應皆回 500，訂單維持 pending |
+| check-payment DB 錯誤 | 查詢訂單時拋錯，回標準 500 錯誤格式，不呼叫綠界 |
+| 購物車小數數量 | DB 內數量為 0.5 時建單回 400 `VALIDATION_ERROR`，無訂單、無扣庫存 |
+| 同商品多列 | 兩列各 6 件、庫存 10，依加總判斷回 400 `STOCK_INSUFFICIENT` |
+| 過期的購物車快照 | 直接呼叫 `createOrderFromCart`：庫存在檢查後被扣走時拋出 `StockInsufficientError` 並整筆回滾；只刪除快照中的購物車品項 |
 
 ### 成功建單資料
 

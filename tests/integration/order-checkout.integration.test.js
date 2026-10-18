@@ -5,6 +5,12 @@ const {
   generateCheckMacValue,
   verifyCheckMacValue
 } = require('../../src/utils/ecpay');
+const { calculateShipping } = require('../../src/utils/shipping');
+const {
+  StockInsufficientError,
+  getCheckoutItems,
+  createOrderFromCart
+} = require('../../src/services/orderService');
 const {
   db,
   resetDatabase,
@@ -217,7 +223,8 @@ describe('Order checkout integration flow', () => {
       total_amount: 1910,
       status: 'pending'
     });
-    expect(storedOrder.merchant_trade_no).toMatch(/^ORD\d{8}[A-F0-9]{5}$/);
+    // ECPay MerchantTradeNo allows at most 20 characters
+    expect(storedOrder.merchant_trade_no).toMatch(/^ORD\d{8}[A-F0-9]{9}$/);
 
     const storedItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
     expect(storedItems).toHaveLength(1);
@@ -426,11 +433,20 @@ describe('Order checkout integration flow', () => {
     const forgedResponses = [
       // Tampered signature
       `MerchantID=${ECPAY_CONFIG.merchantId}&MerchantTradeNo=${merchantTradeNo}&TradeAmt=${order.total_amount}&TradeStatus=1&CheckMacValue=${'0'.repeat(64)}`,
+      // Missing signature
+      `MerchantID=${ECPAY_CONFIG.merchantId}&MerchantTradeNo=${merchantTradeNo}&TradeAmt=${order.total_amount}&TradeStatus=1`,
       // Valid signature but a different amount
       signedTradeInfo({
         MerchantID: ECPAY_CONFIG.merchantId,
         MerchantTradeNo: merchantTradeNo,
         TradeAmt: '1',
+        TradeStatus: '1'
+      }),
+      // Valid signature but another order's trade number
+      signedTradeInfo({
+        MerchantID: ECPAY_CONFIG.merchantId,
+        MerchantTradeNo: 'ORD20260101AAAAAAAAA',
+        TradeAmt: String(order.total_amount),
         TradeStatus: '1'
       })
     ];
@@ -451,5 +467,121 @@ describe('Order checkout integration flow', () => {
       expect(response.body.error).toBe('ECPAY_QUERY_ERROR');
       expect(db.prepare('SELECT status FROM orders WHERE id = ?').get(order.id).status).toBe('pending');
     }
+  });
+
+  it('returns the standard error envelope when the order lookup throws during check-payment', async () => {
+    const { token, order } = await createPendingOrder(primaryProduct, 'check-payment-db-error@example.com');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(db, 'prepare').mockImplementation(sql => {
+      if (sql === 'SELECT * FROM orders WHERE id = ? AND user_id = ?') {
+        throw new Error('forced lookup failure');
+      }
+      return prepare(sql);
+    });
+
+    const response = await request(app)
+      .post(`/api/orders/${order.id}/check-payment`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      data: null,
+      error: 'INTERNAL_ERROR',
+      message: '伺服器內部錯誤'
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects checkout when a stored cart quantity is not a positive integer', async () => {
+    const member = await registerMember('decimal-cart@example.com');
+    const cartItem = await addProductToCart(member.token, primaryProduct.id, 2);
+    // Rows written before PATCH validated quantities could hold decimals
+    db.prepare('UPDATE cart_items SET quantity = 0.5 WHERE id = ?').run(cartItem.id);
+
+    const response = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${member.token}`)
+      .send(ORDER_PAYLOAD);
+
+    expectEnvelope(response, 400);
+    expect(response.body.data).toBeNull();
+    expect(response.body.error).toBe('VALIDATION_ERROR');
+    expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get().count).toBe(0);
+    expect(db.prepare('SELECT stock FROM products WHERE id = ?').get(primaryProduct.id).stock).toBe(10);
+    expect(db.prepare('SELECT quantity FROM cart_items WHERE id = ?').get(cartItem.id).quantity).toBe(0.5);
+  });
+
+  it('checks stock against the total quantity when one product has several cart rows', async () => {
+    const member = await registerMember('duplicate-rows@example.com');
+    await addProductToCart(member.token, primaryProduct.id, 6);
+    // cart_items has no unique constraint, so a second row is possible
+    db.prepare(
+      'INSERT INTO cart_items (id, user_id, product_id, quantity) VALUES (?, ?, ?, ?)'
+    ).run('duplicate-cart-row', member.user.id, primaryProduct.id, 6);
+
+    const response = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${member.token}`)
+      .send(ORDER_PAYLOAD);
+
+    expectEnvelope(response, 400);
+    expect(response.body.error).toBe('STOCK_INSUFFICIENT');
+    expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get().count).toBe(0);
+    expect(db.prepare('SELECT stock FROM products WHERE id = ?').get(primaryProduct.id).stock).toBe(10);
+  });
+
+  describe('createOrderFromCart with a stale cart snapshot', () => {
+    function orderInput(userId, cartItems) {
+      const subtotal = cartItems.reduce((sum, item) => sum + item.product_price * item.quantity, 0);
+      const delivery = { method: 'convenience_store', isRemoteArea: true, isExpress: true };
+      return {
+        userId,
+        recipient: { name: '快照測試', email: 'snapshot@example.com', address: '台北市快照路 1 號' },
+        delivery,
+        cartItems,
+        subtotal,
+        shipping: calculateShipping({ subtotal, ...delivery })
+      };
+    }
+
+    it('rolls back when stock dropped after the checkout check', async () => {
+      const member = await registerMember('stale-stock@example.com');
+      await addProductToCart(member.token, primaryProduct.id, 3);
+      const cartItems = getCheckoutItems(member.user.id);
+      // Another process sells most of the stock after the route checked it
+      db.prepare('UPDATE products SET stock = 2 WHERE id = ?').run(primaryProduct.id);
+
+      expect(() => createOrderFromCart(orderInput(member.user.id, cartItems)))
+        .toThrow(StockInsufficientError);
+
+      expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get().count).toBe(0);
+      expect(db.prepare('SELECT COUNT(*) AS count FROM order_items').get().count).toBe(0);
+      expect(db.prepare('SELECT stock FROM products WHERE id = ?').get(primaryProduct.id).stock).toBe(2);
+      expect(db.prepare(
+        'SELECT quantity FROM cart_items WHERE user_id = ?'
+      ).get(member.user.id).quantity).toBe(3);
+    });
+
+    it('removes only the cart rows the order was built from', async () => {
+      const laterProduct = createProduct({ name: '稍後加入的花束', price: 300, stock: 5 });
+      const member = await registerMember('snapshot-cart@example.com');
+      await addProductToCart(member.token, primaryProduct.id, 2);
+      const cartItems = getCheckoutItems(member.user.id);
+      // Added after the snapshot was read, so it must stay in the cart
+      await addProductToCart(member.token, laterProduct.id, 1);
+
+      createOrderFromCart(orderInput(member.user.id, cartItems));
+
+      const remaining = db.prepare(
+        'SELECT product_id, quantity FROM cart_items WHERE user_id = ?'
+      ).all(member.user.id);
+      expect(remaining).toEqual([{ product_id: laterProduct.id, quantity: 1 }]);
+      expect(db.prepare('SELECT stock FROM products WHERE id = ?').get(primaryProduct.id).stock).toBe(8);
+      expect(db.prepare('SELECT stock FROM products WHERE id = ?').get(laterProduct.id).stock).toBe(5);
+    });
   });
 });

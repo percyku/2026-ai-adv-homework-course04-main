@@ -6,8 +6,16 @@ function generateOrderNo() {
   const dateStr = new Date()
     .toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
     .replace(/-/g, '');
-  const random = uuidv4().slice(0, 5).toUpperCase();
+  // 9 hex chars keep MerchantTradeNo (order_no without hyphens) at ECPay's 20-char limit
+  const random = uuidv4().replace(/-/g, '').slice(0, 9).toUpperCase();
   return `ORD-${dateStr}-${random}`;
+}
+
+class StockInsufficientError extends Error {
+  constructor(productName) {
+    super(`以下商品庫存不足：${productName}`);
+    this.name = 'StockInsufficientError';
+  }
 }
 
 function serializeOrder(order) {
@@ -55,14 +63,20 @@ function getCheckoutItems(userId) {
   ).all(userId);
 }
 
+// Sum quantities per product so duplicate cart rows cannot each pass the check
 function findInsufficientItems(cartItems) {
-  return cartItems.filter(item => item.quantity > item.product_stock);
+  const totals = new Map();
+  for (const item of cartItems) {
+    totals.set(item.product_id, (totals.get(item.product_id) || 0) + item.quantity);
+  }
+  return cartItems.filter(item => totals.get(item.product_id) > item.product_stock);
 }
 
 /**
  * Create an order from the member's cart in one transaction:
  * insert order → snapshot items → deduct stock → clear cart.
  * Amounts must already be calculated by the caller.
+ * Throws StockInsufficientError (and rolls back) if stock dropped after the caller's check.
  */
 function createOrderFromCart({ userId, recipient, delivery, cartItems, subtotal, shipping }) {
   const orderId = uuidv4();
@@ -80,8 +94,8 @@ function createOrderFromCart({ userId, recipient, delivery, cartItems, subtotal,
     `INSERT INTO order_items (id, order_id, product_id, product_name, product_price, quantity)
      VALUES (?, ?, ?, ?, ?, ?)`
   );
-  const updateStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
-  const clearCart = db.prepare('DELETE FROM cart_items WHERE user_id = ?');
+  const updateStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?');
+  const removeCartItem = db.prepare('DELETE FROM cart_items WHERE id = ? AND user_id = ?');
 
   db.transaction(() => {
     insertOrder.run(
@@ -102,16 +116,23 @@ function createOrderFromCart({ userId, recipient, delivery, cartItems, subtotal,
 
     for (const item of cartItems) {
       insertItem.run(uuidv4(), orderId, item.product_id, item.product_name, item.product_price, item.quantity);
-      updateStock.run(item.quantity, item.product_id);
+      const stockResult = updateStock.run(item.quantity, item.product_id, item.quantity);
+      if (stockResult.changes !== 1) {
+        throw new StockInsufficientError(item.product_name);
+      }
     }
 
-    clearCart.run(userId);
+    // Only remove the cart rows this order was built from
+    for (const item of cartItems) {
+      removeCartItem.run(item.id, userId);
+    }
   })();
 
   return orderId;
 }
 
 module.exports = {
+  StockInsufficientError,
   generateOrderNo,
   serializeOrder,
   findOrderById,

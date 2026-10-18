@@ -47,7 +47,10 @@ app.use(function (req, res) {
     });
   }
   res.status(404).render('pages/404', {}, function (err, body) {
-    if (err) return res.status(500).send(err.message);
+    if (err) {
+      console.error('Render error:', err.message);
+      return res.status(500).send('伺服器內部錯誤');
+    }
     res.render('layouts/front', { body, title: '找不到頁面', pageScript: '' });
   });
 });

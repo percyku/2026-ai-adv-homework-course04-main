@@ -1,3 +1,4 @@
+const jwt = require('jsonwebtoken');
 const { app, request, getAdminToken, registerUser } = require('./setup');
 
 describe('Admin Orders API', () => {
@@ -87,7 +88,30 @@ describe('Admin Orders API', () => {
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(403);
-    expect(res.body).toHaveProperty('error');
-    expect(res.body.error).not.toBeNull();
+    expect(res.body).toEqual({ data: null, error: 'FORBIDDEN', message: '權限不足' });
+  });
+
+  it('should use the role stored in the DB, not the one in the token', async () => {
+    const { user } = await registerUser();
+    const forgedToken = jwt.sign(
+      { userId: user.id, email: user.email, role: 'admin' },
+      process.env.JWT_SECRET,
+      { algorithm: 'HS256', expiresIn: '1h' }
+    );
+
+    const res = await request(app)
+      .get('/api/admin/orders')
+      .set('Authorization', `Bearer ${forgedToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ data: null, error: 'FORBIDDEN', message: '權限不足' });
+  });
+
+  it('should require a token', async () => {
+    const res = await request(app).get('/api/admin/orders');
+
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('data', null);
+    expect(res.body).toHaveProperty('error', 'UNAUTHORIZED');
   });
 });

@@ -4,6 +4,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const { queryTradeInfo } = require('../utils/ecpay');
 const { SHIPPING_METHODS, calculateShipping } = require('../utils/shipping');
 const {
+  StockInsufficientError,
   serializeOrder,
   findOrderById,
   findOrderForUser,
@@ -15,7 +16,7 @@ const {
   createOrderFromCart
 } = require('../services/orderService');
 const { isTradePaid, markOrderPaid } = require('../services/paymentService');
-const { isNonEmptyString } = require('../utils/validators');
+const { isNonEmptyString, parsePositiveInteger } = require('../utils/validators');
 
 const router = express.Router();
 
@@ -27,6 +28,11 @@ function testEnvOnly(req, res, next) {
     return res.status(404).json({ data: null, error: 'NOT_FOUND', message: '找不到該資源' });
   }
   next();
+}
+
+// Express 4 ignores rejected promises, so pass async errors on to errorHandler
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
 /**
@@ -108,7 +114,15 @@ function testEnvOnly(req, res, next) {
  *                 message:
  *                   type: string
  *       400:
- *         description: 購物車為空或庫存不足或收件資訊缺失
+ *         description: 購物車為空、購物車數量不是正整數、庫存不足或收件資訊缺失
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
  */
 router.post('/', (req, res) => {
   const {
@@ -164,9 +178,18 @@ router.post('/', (req, res) => {
     });
   }
 
+  // Cart rows saved before PATCH validated quantities may hold decimals
+  if (cartItems.some(item => parsePositiveInteger(item.quantity) === null)) {
+    return res.status(400).json({
+      data: null,
+      error: 'VALIDATION_ERROR',
+      message: '購物車商品數量必須為正整數，請重新設定數量'
+    });
+  }
+
   const insufficientItems = findInsufficientItems(cartItems);
   if (insufficientItems.length > 0) {
-    const names = insufficientItems.map(i => i.product_name).join(', ');
+    const names = [...new Set(insufficientItems.map(i => i.product_name))].join(', ');
     return res.status(400).json({
       data: null,
       error: 'STOCK_INSUFFICIENT',
@@ -185,14 +208,22 @@ router.post('/', (req, res) => {
     isExpress
   });
 
-  const orderId = createOrderFromCart({
-    userId,
-    recipient: { name: recipientName, email: recipientEmail, address: recipientAddress },
-    delivery: { method: shippingMethod, isRemoteArea, isExpress },
-    cartItems,
-    subtotal,
-    shipping
-  });
+  let orderId;
+  try {
+    orderId = createOrderFromCart({
+      userId,
+      recipient: { name: recipientName, email: recipientEmail, address: recipientAddress },
+      delivery: { method: shippingMethod, isRemoteArea, isExpress },
+      cartItems,
+      subtotal,
+      shipping
+    });
+  } catch (err) {
+    if (err instanceof StockInsufficientError) {
+      return res.status(400).json({ data: null, error: 'STOCK_INSUFFICIENT', message: err.message });
+    }
+    throw err;
+  }
 
   const order = findOrderById(orderId);
   const orderItems = getOrderItemSummaries(orderId);
@@ -261,6 +292,8 @@ router.post('/', (req, res) => {
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  */
 router.get('/', (req, res) => {
   const orders = listOrdersForUser(req.user.userId);
@@ -344,11 +377,17 @@ router.get('/', (req, res) => {
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         description: 訂單不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/:id', (req, res) => {
-  const order = findOrderById(req.params.id);
+  const order = findOrderForUser(req.params.id, req.user.userId);
 
   if (!order) {
     return res.status(404).json({ data: null, error: 'NOT_FOUND', message: '訂單不存在' });
@@ -427,8 +466,18 @@ router.get('/:id', (req, res) => {
  *                   type: string
  *       400:
  *         description: action 無效或訂單狀態不是 pending
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         description: 訂單不存在，或非測試環境
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.patch('/:id/pay', testEnvOnly, (req, res) => {
   const { action } = req.body;
@@ -488,12 +537,26 @@ router.patch('/:id/pay', testEnvOnly, (req, res) => {
  *         description: 查詢成功（已付款、尚未付款，或訂單已非 pending 時回傳目前狀態）
  *       400:
  *         description: 此訂單無綠界交易編號（NO_TRADE_NO）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  *       404:
  *         description: 訂單不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: 綠界查詢失敗，或回應的 CheckMacValue、交易編號、金額驗證不符（ECPAY_QUERY_ERROR）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/:id/check-payment', async (req, res) => {
+router.post('/:id/check-payment', asyncHandler(async (req, res) => {
   const userId = req.user.userId;
 
   const order = findOrderForUser(req.params.id, userId);
@@ -542,6 +605,6 @@ router.post('/:id/check-payment', async (req, res) => {
       message: '查詢綠界付款狀態失敗，請稍後再試'
     });
   }
-});
+}));
 
 module.exports = router;

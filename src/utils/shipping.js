@@ -37,7 +37,7 @@ function assertValidInput({ subtotal, method, isRemoteArea, isExpress }) {
 }
 
 function qualifiesForFreeShipping(subtotal) {
-  return subtotal > SHIPPING_RATES.FREE_SHIPPING_THRESHOLD;
+  return subtotal >= SHIPPING_RATES.FREE_SHIPPING_THRESHOLD;
 }
 
 function calculateSurcharges(options) {

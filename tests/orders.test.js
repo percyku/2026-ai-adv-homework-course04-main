@@ -1,4 +1,4 @@
-const { app, request, registerUser } = require('./setup');
+const { app, request, getAdminToken, registerUser } = require('./setup');
 
 describe('Orders API', () => {
   let userToken;
@@ -77,7 +77,7 @@ describe('Orders API', () => {
 
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty('data', null);
-    expect(res.body).toHaveProperty('error');
+    expect(res.body).toHaveProperty('error', 'CART_EMPTY');
   });
 
   it('should fail to create order without auth', async () => {
@@ -90,8 +90,8 @@ describe('Orders API', () => {
       });
 
     expect(res.status).toBe(401);
-    expect(res.body).toHaveProperty('error');
-    expect(res.body.error).not.toBeNull();
+    expect(res.body).toHaveProperty('data', null);
+    expect(res.body).toHaveProperty('error', 'UNAUTHORIZED');
   });
 
   it('should get order list', async () => {
@@ -191,5 +191,84 @@ describe('Orders API', () => {
 
     expect(again.status).toBe(400);
     expect(again.body).toHaveProperty('error', 'INVALID_STATUS');
+  });
+});
+
+describe('Orders API access control and shipping boundaries', () => {
+  const orderBody = {
+    recipientName: '邊界測試收件人',
+    recipientEmail: 'boundary@example.com',
+    recipientAddress: '台北市邊界路 1 號',
+    shippingMethod: 'home_delivery',
+    isRemoteArea: false,
+    isExpress: false,
+  };
+
+  async function createProduct(price) {
+    const adminToken = await getAdminToken();
+    const res = await request(app)
+      .post('/api/admin/products')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: `運費邊界測試花束 ${price}`, price, stock: 5 });
+    return res.body.data.id;
+  }
+
+  async function placeOrder(token, productId) {
+    await request(app)
+      .post('/api/cart')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ productId, quantity: 1 });
+    return request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send(orderBody);
+  }
+
+  it.each([
+    [1499, 120],
+    [1500, 0],
+    [1501, 0]
+  ])('should charge subtotal %i a home delivery fee of %i', async (price, expectedFee) => {
+    const { token } = await registerUser();
+    const res = await placeOrder(token, await createProduct(price));
+
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({
+      subtotal: price,
+      shipping_fee: expectedFee,
+      total_amount: price + expectedFee
+    });
+  });
+
+  it("should return 404 for another member's order", async () => {
+    const owner = await registerUser();
+    const other = await registerUser();
+    const orderRes = await placeOrder(owner.token, await createProduct(800));
+    expect(orderRes.status).toBe(201);
+
+    const res = await request(app)
+      .get(`/api/orders/${orderRes.body.data.id}`)
+      .set('Authorization', `Bearer ${other.token}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ data: null, error: 'NOT_FOUND', message: '訂單不存在' });
+  });
+
+  it('should reject order creation with only X-Session-Id', async () => {
+    const sessionId = 'guest-order-' + Date.now();
+    const productId = await createProduct(800);
+    await request(app)
+      .post('/api/cart')
+      .set('X-Session-Id', sessionId)
+      .send({ productId, quantity: 1 });
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('X-Session-Id', sessionId)
+      .send(orderBody);
+
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('data', null);
+    expect(res.body).toHaveProperty('error', 'UNAUTHORIZED');
   });
 });

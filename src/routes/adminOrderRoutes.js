@@ -86,6 +86,10 @@ router.use(authMiddleware, adminMiddleware);
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 router.get('/', (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -204,8 +208,16 @@ router.get('/', (req, res) => {
  *                   nullable: true
  *                 message:
  *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
  *         description: 訂單不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/:id', (req, res) => {
   const { id } = req.params;

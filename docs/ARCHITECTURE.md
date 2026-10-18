@@ -287,8 +287,8 @@ server.js
 - **驗證流程**：
   1. 檢查 `Authorization` header 是否存在且以 `Bearer ` 開頭
   2. 提取 token，呼叫 `jwt.verify()` 驗證簽章與過期時間
-  3. 查詢資料庫確認 `userId` 對應的使用者仍然存在
-  4. 設定 `req.user = { userId, email, role }`
+  3. 查詢資料庫確認 `userId` 對應的使用者仍然存在，並讀取目前的 email 與 role
+  4. 設定 `req.user = { userId, email, role }`，email 與 role 取自資料庫而非 payload（管理員被降權後，舊 Token 立即失去後台權限）
 - **失敗回應**：401，訊息依情境為「請先登入」/「Token 無效或已過期」/「使用者不存在，請重新登入」
 
 ### 管理員授權（adminMiddleware）
@@ -363,7 +363,7 @@ server.js
 | 欄位 | 型別 | 約束 | 說明 |
 |------|------|------|------|
 | id | TEXT | PRIMARY KEY | UUID v4 |
-| order_no | TEXT | UNIQUE NOT NULL | 訂單編號，格式：`ORD-YYYYMMDD-XXXXX`（日期採台北時間，5 碼 UUID 前綴大寫） |
+| order_no | TEXT | UNIQUE NOT NULL | 訂單編號，格式：`ORD-YYYYMMDD-XXXXXXXXX`（日期採台北時間，9 碼 UUID 前綴大寫；去掉連字號為 20 碼的 `merchant_trade_no`） |
 | user_id | TEXT | NOT NULL, FK → users.id | 下單使用者 ID |
 | recipient_name | TEXT | NOT NULL | 收件人姓名 |
 | recipient_email | TEXT | NOT NULL | 收件人 Email |
@@ -399,20 +399,22 @@ server.js
 ├─ 1. 驗證收件人資訊與配送條件
 ├─ 2. 取得用戶購物車所有品項（JOIN products 取得即時價格與庫存）
 ├─ 3. 檢查購物車是否為空 → 400 CART_EMPTY
-├─ 4. 檢查每個品項庫存是否充足 → 400 STOCK_INSUFFICIENT（列出所有不足商品名稱）
-├─ 5. 計算 subtotal = Σ(price × quantity)
-├─ 6. Shipping 模組計算 shippingFee 與 totalAmount = subtotal + shippingFee
-├─ 7. 生成 orderNo: ORD-YYYYMMDD-{5碼UUID}
+├─ 4. 檢查購物車數量皆為正整數 → 400 VALIDATION_ERROR
+├─ 5. 依商品加總數量後檢查庫存 → 400 STOCK_INSUFFICIENT（列出所有不足商品名稱）
+├─ 6. 計算 subtotal = Σ(price × quantity)
+├─ 7. Shipping 模組計算 shippingFee 與 totalAmount = subtotal + shippingFee
+├─ 8. 生成 orderNo: ORD-YYYYMMDD-{9碼UUID}
 │
-└─ 8. 🔒 Transaction 開始
+└─ 9. 🔒 Transaction 開始
      ├─ INSERT orders 記錄
      ├─ 對每個購物車品項：
      │   ├─ INSERT order_items（快照 product_name, product_price）
-     │   └─ UPDATE products SET stock = stock - quantity
-     └─ DELETE cart_items WHERE user_id = ?
+     │   └─ UPDATE products SET stock = stock - quantity WHERE stock >= quantity
+     │      （未更新到 → 拋出 StockInsufficientError，整筆回滾 → 400 STOCK_INSUFFICIENT）
+     └─ DELETE 步驟 2 讀到的 cart_items（期間新加入的品項保留）
      🔒 Transaction 結束
 │
-└─ 9. 回傳 201 + subtotal、shipping_fee、total_amount 與訂單詳情
+└─ 10. 回傳 201 + subtotal、shipping_fee、total_amount 與訂單詳情
 ```
 
 ## Shipping 模組

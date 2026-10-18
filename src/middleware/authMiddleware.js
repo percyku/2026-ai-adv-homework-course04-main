@@ -15,7 +15,7 @@ function authMiddleware(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 
-    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.userId);
+    const user = db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(decoded.userId);
     if (!user) {
       return res.status(401).json({
         data: null,
@@ -24,10 +24,11 @@ function authMiddleware(req, res, next) {
       });
     }
 
+    // Role comes from the DB so a demoted admin loses access before the token expires
     req.user = {
-      userId: decoded.userId,
-      email: decoded.email,
-      role: decoded.role
+      userId: user.id,
+      email: user.email,
+      role: user.role
     };
     next();
   } catch (err) {
