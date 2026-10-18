@@ -172,6 +172,12 @@ describe('Member order list filtering and pagination', () => {
 
     const secondPage = await listOrders(member.token, '?limit=100&page=2');
     expect(secondPage.body.data.orders).toHaveLength(5);
+
+    // A limit beyond Number's safe range is still a positive integer above 50
+    const hugeLimit = await listOrders(member.token, '?limit=99999999999999999999');
+    expectEnvelope(hugeLimit, 200);
+    expect(hugeLimit.body.data.orders).toHaveLength(50);
+    expect(hugeLimit.body.data.pagination.limit).toBe(50);
   });
 
   it('returns an empty page with real totals for pages past the end', async () => {

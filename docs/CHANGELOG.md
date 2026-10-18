@@ -7,7 +7,7 @@
 ### Added
 - 我的訂單篩選與分頁（Issue #3）：`GET /api/orders` 支援 `status`（`pending` / `paid` / `failed`）、`page`（預設 1）、`limit`（預設 10，超過 50 以 50 計），回應新增 `pagination: { page, limit, total, totalPages }`；`status` 不在允許值內，或 `page`、`limit` 不是正整數時回 400 `VALIDATION_ERROR`
 - `src/utils/orderListQuery.js`：訂單列表參數驗證與 pagination 組裝的純邏輯模組
-- `tests/orderListQuery.test.js`（40 項）與 `tests/integration/order-list.integration.test.js`（19 項）；Unit/API 測試增為 128 項，Integration 增為 40 項
+- `tests/orderListQuery.test.js`（43 項）與 `tests/integration/order-list.integration.test.js`（19 項）；Unit/API 測試增為 131 項，Integration 增為 40 項
 - 結帳優惠碼（Issue #1）：`POST /api/orders` 新增選填 `couponCode`，支援 `FLOWER100`（滿 800 折 100）、`SPRING10`（9 折、最多折 300），`SUMMER50` 已失效；無效、失效或未達門檻回 400 `INVALID_COUPON`，不建立訂單、不扣庫存、不清空購物車
 - `src/utils/coupon.js`：優惠碼規則與折扣計算的純邏輯模組，比照 Shipping 模組
 - `orders` 表新增 `coupon_code`（大寫，可為 NULL）與 `discount`（預設 0）欄位，以可重複執行的 migration 加入，舊訂單視為未使用優惠碼

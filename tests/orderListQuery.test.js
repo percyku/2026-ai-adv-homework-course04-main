@@ -82,7 +82,10 @@ describe('Order list query module', () => {
       ['49', 49],
       ['50', 50],
       ['51', 50],
-      ['100', 50]
+      ['100', 50],
+      ['9007199254740993', 50],
+      ['99999999999999999999', 50],
+      ['1' + '0'.repeat(400), 50]
     ])('limit=%s 採用 %i（上限 50）', (limit, expected) => {
       expect(parseOrderListQuery({ limit }).limit).toBe(expected);
     });

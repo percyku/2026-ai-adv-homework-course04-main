@@ -15,7 +15,7 @@
 | 後台訂單管理 | ✅ 完成 | 訂單查詢與狀態篩選 |
 | 前台頁面 | ✅ 完成 | EJS + Tailwind CSS |
 | 後台頁面 | ✅ 完成 | EJS + Tailwind CSS |
-| 測試 | ✅ 完成 | 128 項 Unit/API + 40 項 Integration + 1 項綠界真實付款 E2E |
+| 測試 | ✅ 完成 | 131 項 Unit/API + 40 項 Integration + 1 項綠界真實付款 E2E |
 | API 文件 | ✅ 完成 | Swagger/OpenAPI 生成與 Postman Collection 自動轉換 |
 
 ---
@@ -326,8 +326,8 @@ total_amount      = subtotal - discount + shipping_fee
 | 參數 | 型別 | 預設值 | 驗證規則 |
 |------|------|--------|----------|
 | status | string | 無（不篩選） | `pending` / `paid` / `failed`，其他值（含空字串、大小寫不同、重複帶入）回 400 |
-| page | integer | 1 | 正整數（接受純數字字串），否則回 400 |
-| limit | integer | 10 | 正整數，否則回 400；超過 50 以 50 計 |
+| page | integer | 1 | 正整數（接受純數字字串），否則回 400；超出 JS 安全整數範圍也回 400 |
+| limit | integer | 10 | 正整數，否則回 400；超過 50 以 50 計（再大的正整數也一樣） |
 
 **回應結構**：
 ```json

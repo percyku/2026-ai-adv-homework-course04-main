@@ -13,7 +13,7 @@
 ## 執行指令
 
 ```bash
-# 單元與 API 測試（9 個檔案、128 項測試）
+# 單元與 API 測試（9 個檔案、131 項測試）
 npm run test:unit
 
 # 結帳、訂單、優惠碼、訂單列表、DB、庫存、回滾與綠界整合測試（3 個檔案、40 項測試）
@@ -137,7 +137,7 @@ Integration Test 中有兩層防護：
 |------|------|
 | `tests/shipping.test.js` | Shipping 純函式、門檻（1,499 / 1,500 / 1,501）與附加費 |
 | `tests/coupon.test.js` | Coupon 純函式：未使用、FLOWER100 門檻（799 / 800）、SPRING10 四捨五入與 300 元上限、SUMMER50 失效、大小寫與空白正規化、輸入驗證 |
-| `tests/orderListQuery.test.js` | 訂單列表參數純函式：預設值、status 白名單（含空字串、大小寫、重複帶入）、page 門檻（0 / 1 / 2）、limit 上限（49 / 50 / 51）、非正整數與超出安全整數、offset 與 totalPages 計算 |
+| `tests/orderListQuery.test.js` | 訂單列表參數純函式：預設值、status 白名單（含空字串、大小寫、重複帶入）、page 門檻（0 / 1 / 2）、limit 上限（49 / 50 / 51，以及超出安全整數或 `Number` 範圍的值仍以 50 計）、非正整數、超出安全整數的 page、offset 與 totalPages 計算 |
 | `tests/auth.test.js` | 註冊、登入、重複 Email、個人資料、非字串欄位、JSON 格式錯誤 |
 | `tests/products.test.js` | 商品列表、分頁、詳情與 404 |
 | `tests/cart.test.js` | 訪客/會員購物車 CRUD、新增與修改的數量驗證（含 0、負數、小數）、庫存上限、他人品項回 404、登入/註冊時合併訪客購物車（含庫存上限） |
@@ -190,7 +190,7 @@ Integration Test 中有兩層防護：
 | 12 筆同一秒建立 | `limit=5` 三頁為 5 / 5 / 2 筆，無重複、無遺漏，同秒內較晚寫入者在前 |
 | 狀態篩選 + 分頁 | 13 筆中 7 筆 paid，`status=paid&page=3&limit=3` 回 1 筆、`total: 7`、`totalPages: 3`；pending / failed 只含該狀態 |
 | 他人訂單 | 有無 `status` 篩選皆不回傳、不計入 `total` |
-| `limit=100` | 55 筆時第 1 頁 50 筆、`limit: 50`、`totalPages: 2`，第 2 頁 5 筆 |
+| `limit=100` | 55 筆時第 1 頁 50 筆、`limit: 50`、`totalPages: 2`，第 2 頁 5 筆；`limit=99999999999999999999` 同樣以 50 計 |
 | 超過最後一頁 | `page=5` 與 `page=Number.MAX_SAFE_INTEGER` 回空陣列，`total` / `totalPages` 為實際值 |
 | 沒有訂單 | `total: 0`、`totalPages: 0` |
 | 無效參數 | `status=unknown`、`status=`、重複 `status`、`page=0/-1/1.5/abc`、`limit=-1/0/空字串` 皆回 400 `VALIDATION_ERROR`、`data: null` |

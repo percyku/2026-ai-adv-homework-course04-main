@@ -21,7 +21,8 @@
 - 只回傳自己的訂單（查詢條件含 `user_id`），`total` 只計算自己且符合狀態的訂單
 - 依建立時間由新到舊；`created_at` 只精確到秒，同秒訂單以 `rowid DESC` 排序，確保換頁時不重複、不遺漏
 - 只有「未帶參數」才套用預設值；`?status=`、`?page=`、`?limit=` 空字串與重複帶入的參數都視為無效
-- 頁碼超過最後一頁回傳空陣列，`pagination` 仍為實際的 `total`、`totalPages`；超出 JS 安全整數範圍的頁碼視為無效
+- 頁碼超過最後一頁回傳空陣列，`pagination` 仍為實際的 `total`、`totalPages`；超出 JS 安全整數範圍的頁碼無法精確表示，視為無效
+- `limit` 只要是正整數，不論多大（含超出 JS 安全整數或 `Number` 範圍）都以 50 計
 - `totalPages = ceil(total / limit)`，沒有訂單時為 0
 - 參數驗證放在 `src/utils/orderListQuery.js`，查詢放在 `orderService.listOrdersForUser`，路由只負責轉成 400 與組合回應
 
